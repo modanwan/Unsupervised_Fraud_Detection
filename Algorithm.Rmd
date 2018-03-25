@@ -1,0 +1,116 @@
+---
+title: "project1"
+author: "Chun Yang"
+date: "February 17, 2018"
+
+---
+
+Read rds
+```{r setup, include=FALSE}
+setwd("C:/Users/user/Desktop")
+df <- readRDS("finaldata.Rds")
+```
+
+Choose 7 principle components, which explans 86.64% of the variance
+```{r}
+pca <- prcomp(df,center = TRUE,scale. = TRUE) 
+```
+
+```{r}
+plot(pca,type = "l")
+summary(pca)
+```
+
+unscaled pca data
+```{r}
+pcadf=data.frame(pca$x)[1:7]
+```
+
+scaled pca data
+```{r}
+finalpcadf=data.frame(scale(pcadf,center=TRUE,scale=TRUE))
+```
+
+```{r}
+save(finalpcadf,file="finalpcadf.Rda")
+```
+
+1 distance of z-scores, n=2
+```{r}
+distance=data.frame(finalpcadf^2)
+score1=data.frame(sqrt(rowSums(distance)))
+score1final = data.frame(cbind(1:nrow(score1), score1))
+colnames(score1final) = c("Record", "Zscore")
+summary(score1final)
+```
+
+```{r}
+save(score1final,file="score1final.Rda")
+```
+
+score1 histogram
+```{r}
+library(ggplot2)
+ggplot(score1final,aes(x=Zscore))+
+  geom_histogram()+
+  scale_y_log10()
+```
+
+2 autoencoder single layer, hidder neurons is 2
+```{r}
+library(h2o)
+localH2O = h2o.init()
+
+finalpcadf.hex = as.h2o(finalpcadf)
+autoencoder = h2o.deeplearning(x = names(finalpcadf.hex), training_frame = finalpcadf.hex,
+                               autoencoder = TRUE,
+                               hidden=2,
+                               reproducible = F)
+
+```
+
+MSE of input and output for each variable
+```{r}
+finaldata.anon = h2o.anomaly(autoencoder, finalpcadf.hex, per_feature=TRUE)
+err = as.data.frame(finaldata.anon)
+```
+
+autoencoder score
+```{r}
+score2=data.frame(sqrt(rowSums(err)))
+score2final = data.frame(cbind(1:nrow(score2), score2))
+colnames(score2final) = c("Record", "autoencoder")
+summary(score2final)
+```
+
+```{r}
+save(score2final,file="score2final.Rda")
+```
+
+score2 histogram
+```{r}
+ggplot(score2final,aes(x=autoencoder))+
+  geom_histogram()+
+  scale_y_log10()
+```
+
+```{r}
+load("score1final.rda")
+load("score2final.rda")
+load("finalpcadf.rda")
+```
+
+
+one record one quantile, get top 10 fraud
+```{r}
+score10=merge(score1final,score2final,by="Record")
+score10$rank1=ceiling(rank(score10$Zscore))
+score10$rank2=ceiling(rank(score10$autoencoder))
+score10$finalscore=(score10$rank1+score10$rank2)/2
+```
+
+```{r}
+top10=score10[order(score10$finalscore,decreasing=TRUE)[1:10],]
+```
+
+
